@@ -1,0 +1,185 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// SQLite has no native enum support in Prisma, so these fields are plain
+// Strings constrained at the application layer (see backend/src/types.ts
+// and the zod schemas in each route). Valid values:
+//   Role: ADMIN | MANAGER | STAFF | RECEPTIONIST
+//   AppointmentStatus: SCHEDULED | CONFIRMED | COMPLETED | CANCELLED | NO_SHOW
+//   InvoiceStatus: UNPAID | PARTIAL | PAID | REFUNDED
+//   PaymentMethod: CASH | CARD | ONLINE | WALLET
+//   StockMovementType: IN | OUT | ADJUSTMENT
+//   InvoiceItemType: SERVICE | PRODUCT
+
+model User {
+  id             String   @id @default(cuid())
+  name           String
+  email          String   @unique
+  passwordHash   String
+  role           String   @default("STAFF")
+  phone          String?
+  active         Boolean  @default(true)
+  commissionPct  Float    @default(0)
+  avatarColor    String   @default("#7c5cff")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  appointments   Appointment[]     @relation("StaffAppointments")
+  invoices       Invoice[]         @relation("StaffInvoices")
+  schedules      StaffSchedule[]
+  stockMovements StockMovement[]
+  timeOff        TimeOff[]
+}
+
+model StaffSchedule {
+  id        String   @id @default(cuid())
+  staffId   String
+  staff     User     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  dayOfWeek Int // 0 = Sunday ... 6 = Saturday
+  startTime String // "09:00"
+  endTime   String // "17:00"
+  isOff     Boolean  @default(false)
+
+  @@unique([staffId, dayOfWeek])
+}
+
+model TimeOff {
+  id        String   @id @default(cuid())
+  staffId   String
+  staff     User     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  date      DateTime
+  reason    String?
+  createdAt DateTime @default(now())
+}
+
+model Client {
+  id            String    @id @default(cuid())
+  firstName     String
+  lastName      String
+  email         String?
+  phone         String
+  gender        String?
+  dateOfBirth   DateTime?
+  address       String?
+  notes         String?
+  allergies     String?
+  loyaltyPoints Int       @default(0)
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  appointments Appointment[]
+  invoices     Invoice[]
+}
+
+model Service {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  category        String   @default("General")
+  durationMinutes Int      @default(30)
+  price           Float
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  appointmentServices AppointmentService[]
+}
+
+model Appointment {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+  staffId   String
+  staff     User     @relation("StaffAppointments", fields: [staffId], references: [id])
+  startTime DateTime
+  endTime   DateTime
+  status    String   @default("SCHEDULED")
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  services AppointmentService[]
+  invoice  Invoice?
+}
+
+model AppointmentService {
+  id               String      @id @default(cuid())
+  appointmentId    String
+  appointment      Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  serviceId        String
+  service          Service     @relation(fields: [serviceId], references: [id])
+  priceSnapshot    Float
+  durationSnapshot Int
+}
+
+model Product {
+  id              String   @id @default(cuid())
+  name            String
+  sku             String   @unique
+  category        String   @default("General")
+  unit            String   @default("unit")
+  costPrice       Float    @default(0)
+  retailPrice     Float    @default(0)
+  quantityInStock Int      @default(0)
+  reorderLevel    Int      @default(5)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  stockMovements StockMovement[]
+  invoiceItems   InvoiceItem[]
+}
+
+model StockMovement {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  type      String
+  quantity  Int
+  reason    String?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model Invoice {
+  id            String       @id @default(cuid())
+  invoiceNumber String       @unique
+  clientId      String
+  client        Client       @relation(fields: [clientId], references: [id])
+  staffId       String
+  staff         User         @relation("StaffInvoices", fields: [staffId], references: [id])
+  appointmentId String?      @unique
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
+  subtotal      Float
+  discount      Float        @default(0)
+  tax           Float        @default(0)
+  total         Float
+  amountPaid    Float        @default(0)
+  status        String       @default("UNPAID")
+  paymentMethod String       @default("CASH")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  items InvoiceItem[]
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  type        String
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id])
+  description String
+  quantity    Int      @default(1)
+  unitPrice   Float
+  total       Float
+}
